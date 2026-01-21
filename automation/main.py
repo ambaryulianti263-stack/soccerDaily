@@ -21,7 +21,6 @@ if not GROQ_API_KEYS:
     exit(1)
 
 # --- CATEGORY RSS FEED (ENGLISH / GLOBAL SOURCES) ---
-# We use 'when:1d' to ensure the news is fresh (last 24 hours)
 CATEGORY_URLS = {
     "Transfer News": "https://news.google.com/rss/search?q=football+transfer+news+Fabrizio+Romano+here+we+go+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
     "Premier League": "https://news.google.com/rss/search?q=Premier+League+news+match+result+highlights+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
@@ -60,93 +59,72 @@ def get_internal_links_context():
         items = random.sample(items, 30)
     return json.dumps(dict(items))
 
-# --- HYBRID IMAGE ENGINE ---
-def generate_ai_image(prompt, filename):
-    """
-    Backup: Generate photorealistic image using Flux-Realism if DDG fails.
-    """
-    print(f"      🎨 DDG Blocked. Switching to AI Generation: {prompt}...")
-    
-    # Prompt engineering for realistic sports photography
-    enhanced_prompt = f"Real photography, {prompt}, 8k sports photo, realistic lighting, soccer stadium background, highly detailed, dynamic angle, 4k texture, action shot"
-    safe_prompt = enhanced_prompt.replace(" ", "%20")[:300]
-    
-    image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1280&height=720&nologo=true&model=flux-realism"
-    
-    try:
-        # Long timeout (90s) to prevent 'Read timed out' errors
-        response = requests.get(image_url, timeout=90)
-        if response.status_code == 200:
-            img = Image.open(BytesIO(response.content))
-            img = img.convert("RGB")
-            
-            output_path = f"{IMAGE_DIR}/{filename}"
-            img.save(output_path, "JPEG", quality=90, optimize=True)
-            return True
-    except Exception as e:
-        print(f"      ❌ AI Gen Failed: {e}")
-    
-    return False
-
+# --- REAL IMAGE ENGINE (STRICTLY NO AI) ---
 def download_and_optimize_image(query, filename):
     """
-    Try DDG first. If 403 Blocked -> Use AI.
+    Search Real Image on DDG -> Download -> Crop Watermark -> Mirror -> Save.
+    NO AI GENERATION allowed.
     """
     search_query = f"{query} soccer match action wallpaper 4k"
-    print(f"      🔍 Searching Image: {search_query}...")
+    print(f"      🔍 Searching Real Image: {search_query}...")
     
     image_url = None
     
-    # 1. TRY REAL IMAGE (DDG)
+    # 1. SEARCH IMAGE (DuckDuckGo)
     try:
         with DDGS() as ddgs:
             results = list(ddgs.images(
                 keywords=search_query, 
                 region="wt-wt", 
                 safesearch="off", 
-                size="Wallpaper", 
+                size="Wallpaper", # High Res only
                 type_image="photo", 
                 max_results=2
             ))
             if results:
                 image_url = results[0]['image']
     except Exception as e:
-        print(f"      ⚠️ Search Engine Error/Blocked: {e}")
-    
-    # 2. IF FAILED -> USE AI BACKUP
-    if not image_url:
-        print("      ⚠️ Real image not found/blocked. Using AI Backup...")
-        return generate_ai_image(query, filename)
+        print(f"      ⚠️ Search Error (Blocked/Network): {e}")
+        return False # Fail gracefully, will use default image
 
-    # 3. IF FOUND -> PROCESS
+    if not image_url:
+        print("      ❌ No image found.")
+        return False
+
+    # 2. DOWNLOAD & MODIFY
     try:
-        print(f"      ⬇️ Downloading Real Image: {image_url[:40]}...")
+        print(f"      ⬇️ Downloading: {image_url[:40]}...")
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(image_url, headers=headers, timeout=30)
+        response = requests.get(image_url, headers=headers, timeout=20)
         
         if response.status_code == 200:
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
             
-            # --- CROP ---
+            # --- MODIFICATION STEPS (Anti-Copyright) ---
+            
+            # A. Smart Crop (Remove watermarks/tickers at edges)
             width, height = img.size
+            # Crop 10% from top/left/right, 15% from bottom
             img = img.crop((width*0.1, height*0.1, width*0.9, height*0.85)) 
             
-            # --- RESIZE & MIRROR ---
+            # B. Resize to HD & Mirroring (Flip Horizontal)
             img = img.resize((1280, 720), Image.Resampling.LANCZOS)
             img = ImageOps.mirror(img) 
             
-            # --- ENHANCE ---
+            # C. Enhance Quality (Sharpen & Color)
             enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(1.4)
+            img = enhancer.enhance(1.4) # Sharpen
+            enhancer_col = ImageEnhance.Color(img)
+            img = enhancer_col.enhance(1.1) # Boost color slightly
             
+            # D. Save (Strip Metadata)
             output_path = f"{IMAGE_DIR}/{filename}"
             img.save(output_path, "JPEG", quality=90, optimize=True)
             return True
             
     except Exception as e:
-        print(f"      ⚠️ Process Fail: {e}")
-        return generate_ai_image(query, filename)
+        print(f"      ⚠️ Processing Fail: {e}")
     
     return False
 
@@ -169,7 +147,7 @@ def parse_ai_response(text):
 def get_groq_article_seo(title, summary, link, internal_links_map, target_category):
     MODEL_NAME = "llama-3.3-70b-versatile"
     
-    # --- PROMPT IN ENGLISH ---
+    # --- PROMPT IN ENGLISH (BRITISH PUNDIT STYLE) ---
     system_prompt = f"""
     You are a Senior Football Pundit and Journalist for 'Soccer Daily'.
     TARGET CATEGORY: {target_category}
@@ -182,16 +160,16 @@ def get_groq_article_seo(title, summary, link, internal_links_map, target_catego
     [Markdown Content]
 
     STYLE GUIDE:
-    1. **Tone**: Professional, passionate, and authoritative (British English preferred for soccer terms).
+    1. **Tone**: Professional, passionate, and authoritative (British English preferred).
     2. **Structure**:
-       - **Key Highlights** (Bullet points at top).
-       - **Introduction**: The Hook & 5W1H (Who, What, Where, When, Why, How).
-       - **Tactical Analysis / Context**: Deep dive into the match/news.
-       - **Stats / Data**: Include relevant stats if available.
-       - **Quotes**: Mention reaction from managers/players (simulated based on context).
-       - **Verdict / Outlook**: What happens next?
-    3. **SEO**: Use internal links from this list: {internal_links_map} -> Syntax: [Keyword](/articles/slug).
-    4. **Originality**: Do not just copy the summary. Expand with expert analysis.
+       - **Key Highlights** (Bullet points).
+       - **Introduction**: The Hook & 5W1H.
+       - **Tactical Analysis / Context**: Deep dive.
+       - **Stats**: Include relevant stats.
+       - **Quotes**: Reaction (Simulated).
+       - **Verdict**: What happens next?
+    3. **SEO**: Use internal links: {internal_links_map}.
+    4. **Originality**: Expand with expert analysis.
     """
 
     user_prompt = f"""
@@ -266,14 +244,15 @@ def main():
             data = parse_ai_response(raw_response)
             if not data: continue
 
-            # 2. Image (Hybrid: Try Real -> Fail -> Use AI)
+            # 2. Real Image Processing (NO AI GENERATION)
             img_name = f"{slug}.jpg"
             has_img = download_and_optimize_image(data['main_keyword'], img_name)
             
+            # Jika gagal mencari gambar asli, gunakan default (Bukan AI)
             final_img = f"/images/{img_name}" if has_img else "/images/default-football.jpg"
             
             # 3. Save
-            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+00:00") # UTC Time
+            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+00:00")
             
             md = f"""---
 title: "{data['title'].replace('"', "'")}"
@@ -300,6 +279,7 @@ draft: false
             cat_success_count += 1
             total_generated += 1
             
+            # Jeda agar tidak kena block DuckDuckGo
             print("   zzz... Cooling down 10s...")
             time.sleep(10)
 
