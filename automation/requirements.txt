@@ -3,4 +3,4 @@ feedparser
 python-slugify
 Pillow
 groq
-duckduckgo-search>=5.0.0
+duckduckgo-search==6.4.2
