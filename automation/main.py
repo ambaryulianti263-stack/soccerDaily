@@ -17,24 +17,25 @@ GROQ_KEYS_RAW = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_RAW.split(",") if k.strip()]
 
 if not GROQ_API_KEYS:
-    print("❌ FATAL ERROR: API Key Groq Kosong!")
+    print("❌ FATAL ERROR: Groq API Key is missing!")
     exit(1)
 
-# --- CATEGORY RSS FEED ---
+# --- CATEGORY RSS FEED (ENGLISH / GLOBAL SOURCES) ---
+# We use 'when:1d' to ensure the news is fresh (last 24 hours)
 CATEGORY_URLS = {
-    "Berita Transfer": "https://news.google.com/rss/search?q=football+transfer+news+Romano+here+we+go+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
-    "Liga Inggris": "https://news.google.com/rss/search?q=Premier+League+news+match+result+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
-    "Liga Champions": "https://news.google.com/rss/search?q=UEFA+Champions+League+news+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Transfer News": "https://news.google.com/rss/search?q=football+transfer+news+Fabrizio+Romano+here+we+go+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Premier League": "https://news.google.com/rss/search?q=Premier+League+news+match+result+highlights+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Champions League": "https://news.google.com/rss/search?q=UEFA+Champions+League+news+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
     "La Liga": "https://news.google.com/rss/search?q=La+Liga+Real+Madrid+Barcelona+news+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
-    "Timnas Indonesia": "https://news.google.com/rss/search?q=Timnas+Indonesia+PSSI+STY+when:1d&hl=id-ID&gl=ID&ceid=ID:id",
-    "Prediksi Pertandingan": "https://news.google.com/rss/search?q=football+match+prediction+preview+lineup+when:1d&hl=en-GB&gl=GB&ceid=GB:en"
+    "International Football": "https://news.google.com/rss/search?q=International+Football+news+FIFA+World+Cup+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Match Predictions": "https://news.google.com/rss/search?q=football+match+prediction+preview+predicted+lineup+when:1d&hl=en-GB&gl=GB&ceid=GB:en"
 }
 
 CONTENT_DIR = "content/articles"
 IMAGE_DIR = "static/images"
 DATA_DIR = "automation/data"
 MEMORY_FILE = f"{DATA_DIR}/link_memory.json"
-AUTHOR_NAME = "Soccer Daily Admin"
+AUTHOR_NAME = "Soccer Daily Editorial"
 
 TARGET_PER_CATEGORY = 1 
 
@@ -59,26 +60,26 @@ def get_internal_links_context():
         items = random.sample(items, 30)
     return json.dumps(dict(items))
 
-# --- HYBRID IMAGE ENGINE (DDG + AI BACKUP) ---
+# --- HYBRID IMAGE ENGINE ---
 def generate_ai_image(prompt, filename):
     """
-    Backup: Jika pencarian gagal, buat gambar photorealistic pakai AI.
+    Backup: Generate photorealistic image using Flux-Realism if DDG fails.
     """
     print(f"      🎨 DDG Blocked. Switching to AI Generation: {prompt}...")
     
-    # Prompt engineering agar hasil seperti foto asli (bukan kartun)
-    enhanced_prompt = f"Real photography, {prompt}, 8k sports photo, realistic lighting, stadium background, no text, blur background"
+    # Prompt engineering for realistic sports photography
+    enhanced_prompt = f"Real photography, {prompt}, 8k sports photo, realistic lighting, soccer stadium background, highly detailed, dynamic angle, 4k texture, action shot"
     safe_prompt = enhanced_prompt.replace(" ", "%20")[:300]
     
-    # Menggunakan model 'flux-realism' (Paling bagus untuk foto nyata)
     image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1280&height=720&nologo=true&model=flux-realism"
     
     try:
-        response = requests.get(image_url, timeout=30)
+        # Long timeout (90s) to prevent 'Read timed out' errors
+        response = requests.get(image_url, timeout=90)
         if response.status_code == 200:
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
-            # Tetap lakukan optimasi & save
+            
             output_path = f"{IMAGE_DIR}/{filename}"
             img.save(output_path, "JPEG", quality=90, optimize=True)
             return True
@@ -89,14 +90,14 @@ def generate_ai_image(prompt, filename):
 
 def download_and_optimize_image(query, filename):
     """
-    Mencoba cari gambar di DDG. Jika Error 403 (Blocked), lari ke AI.
+    Try DDG first. If 403 Blocked -> Use AI.
     """
     search_query = f"{query} soccer match action wallpaper 4k"
     print(f"      🔍 Searching Image: {search_query}...")
     
     image_url = None
     
-    # 1. COBA CARI GAMBAR ASLI (DDG)
+    # 1. TRY REAL IMAGE (DDG)
     try:
         with DDGS() as ddgs:
             results = list(ddgs.images(
@@ -110,31 +111,30 @@ def download_and_optimize_image(query, filename):
             if results:
                 image_url = results[0]['image']
     except Exception as e:
-        # Tangkap Error 403 (Ratelimit) di sini
         print(f"      ⚠️ Search Engine Error/Blocked: {e}")
     
-    # 2. JIKA DDG GAGAL/BLOCKED -> GUNAKAN AI FLUX REALISM
+    # 2. IF FAILED -> USE AI BACKUP
     if not image_url:
         print("      ⚠️ Real image not found/blocked. Using AI Backup...")
         return generate_ai_image(query, filename)
 
-    # 3. JIKA GAMBAR KETEMU -> DOWNLOAD & PROSES
+    # 3. IF FOUND -> PROCESS
     try:
         print(f"      ⬇️ Downloading Real Image: {image_url[:40]}...")
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(image_url, headers=headers, timeout=10)
+        response = requests.get(image_url, headers=headers, timeout=30)
         
         if response.status_code == 200:
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
             
-            # --- CROP WATERMARK ---
+            # --- CROP ---
             width, height = img.size
-            img = img.crop((width*0.1, height*0.1, width*0.9, height*0.85)) # Crop simple
+            img = img.crop((width*0.1, height*0.1, width*0.9, height*0.85)) 
             
             # --- RESIZE & MIRROR ---
             img = img.resize((1280, 720), Image.Resampling.LANCZOS)
-            img = ImageOps.mirror(img) # Flip Horizontal
+            img = ImageOps.mirror(img) 
             
             # --- ENHANCE ---
             enhancer = ImageEnhance.Sharpness(img)
@@ -146,12 +146,11 @@ def download_and_optimize_image(query, filename):
             
     except Exception as e:
         print(f"      ⚠️ Process Fail: {e}")
-        # Jika download gagal pun, lempar ke AI sebagai pertahanan terakhir
         return generate_ai_image(query, filename)
     
     return False
 
-# --- AI WRITER ENGINE ---
+# --- AI WRITER ENGINE (ENGLISH) ---
 def parse_ai_response(text):
     try:
         parts = text.split("|||BODY_START|||")
@@ -170,34 +169,42 @@ def parse_ai_response(text):
 def get_groq_article_seo(title, summary, link, internal_links_map, target_category):
     MODEL_NAME = "llama-3.3-70b-versatile"
     
+    # --- PROMPT IN ENGLISH ---
     system_prompt = f"""
-    Anda adalah Analis Sepak Bola Senior & Pundit untuk 'Soccer Daily'.
-    KATEGORI: {target_category}
+    You are a Senior Football Pundit and Journalist for 'Soccer Daily'.
+    TARGET CATEGORY: {target_category}
     
-    TUGAS: Tulis artikel berita/analisis sepak bola (800-1000 kata) dalam BAHASA INDONESIA.
+    TASK: Write a high-quality, engaging football news article (800-1000 words) in ENGLISH.
     
-    OUTPUT FORMAT (JSON WAJIB):
-    {{"title": "Judul Clickbait Berkelas (Max 70 chars)", "description": "Ringkasan SEO (Max 150 chars)", "category": "{target_category}", "main_keyword": "Nama Pemain/Tim Utama"}}
+    OUTPUT FORMAT (JSON REQUIRED):
+    {{"title": "Catchy Headline (Max 70 chars)", "description": "SEO Summary (Max 150 chars)", "category": "{target_category}", "main_keyword": "Main Player/Team Name"}}
     |||BODY_START|||
-    [Isi Artikel Format Markdown]
+    [Markdown Content]
 
-    STYLE:
-    - Gunakan istilah bola (Brace, Blunder, Tiki-taka, High Pressing).
-    - Intro (5W1H), Analisis Taktik, Statistik, Prediksi.
-    - Masukkan internal link: {internal_links_map}.
+    STYLE GUIDE:
+    1. **Tone**: Professional, passionate, and authoritative (British English preferred for soccer terms).
+    2. **Structure**:
+       - **Key Highlights** (Bullet points at top).
+       - **Introduction**: The Hook & 5W1H (Who, What, Where, When, Why, How).
+       - **Tactical Analysis / Context**: Deep dive into the match/news.
+       - **Stats / Data**: Include relevant stats if available.
+       - **Quotes**: Mention reaction from managers/players (simulated based on context).
+       - **Verdict / Outlook**: What happens next?
+    3. **SEO**: Use internal links from this list: {internal_links_map} -> Syntax: [Keyword](/articles/slug).
+    4. **Originality**: Do not just copy the summary. Expand with expert analysis.
     """
 
     user_prompt = f"""
-    Sumber Berita: {title}
-    Ringkasan: {summary}
-    Link Asli: {link}
+    Source News: {title}
+    Summary: {summary}
+    Original Link: {link}
     
-    Buat artikel sekarang.
+    Write the article now.
     """
 
     for index, api_key in enumerate(GROQ_API_KEYS):
         try:
-            print(f"      🤖 AI Menulis ({target_category})...")
+            print(f"      🤖 AI Writing ({target_category})...")
             client = Groq(api_key=api_key)
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
@@ -232,7 +239,7 @@ def main():
             continue
         
         if not feed.entries:
-            print(f"   ⚠️ Kosong/Skip.")
+            print(f"   ⚠️ Empty/Skip.")
             continue
 
         cat_success_count = 0
@@ -261,20 +268,19 @@ def main():
 
             # 2. Image (Hybrid: Try Real -> Fail -> Use AI)
             img_name = f"{slug}.jpg"
-            search_query = f"{data['main_keyword']} soccer match action"
-            has_img = download_and_optimize_image(search_query, img_name)
+            has_img = download_and_optimize_image(data['main_keyword'], img_name)
             
             final_img = f"/images/{img_name}" if has_img else "/images/default-football.jpg"
             
             # 3. Save
-            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+07:00")
+            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+00:00") # UTC Time
             
             md = f"""---
 title: "{data['title'].replace('"', "'")}"
 date: {date}
 author: "{AUTHOR_NAME}"
 categories: ["{data['category']}"]
-tags: ["{data['main_keyword']}", "Berita Bola"]
+tags: ["{data['main_keyword']}", "Soccer News", "Football"]
 featured_image: "{final_img}"
 description: "{data['description'].replace('"', "'")}"
 draft: false
@@ -283,7 +289,7 @@ draft: false
 {data['content']}
 
 ---
-*Sumber: Analisis Soccer Daily dari laporan media internasional dan [Sumber Asli]({entry.link}).*
+*Source: Analysis by Soccer Daily based on international reports and [Original Story]({entry.link}).*
 """
             with open(f"{CONTENT_DIR}/{filename}", "w", encoding="utf-8") as f: f.write(md)
             
@@ -294,10 +300,10 @@ draft: false
             cat_success_count += 1
             total_generated += 1
             
-            print("   zzz... Istirahat 10 detik...")
+            print("   zzz... Cooling down 10s...")
             time.sleep(10)
 
-    print(f"\n🎉 SELESAI! Total: {total_generated}")
+    print(f"\n🎉 DONE! Total generated: {total_generated}")
 
 if __name__ == "__main__":
     main()
