@@ -3,7 +3,7 @@
     <div class="bg-news-dark text-white text-[10px] py-1 hidden md:block">
         <div class="container mx-auto px-4 flex justify-between">
             <span>{{ now.Format "Monday, January 2, 2006" }}</span>
-            <span>US Daily Autonomous News</span>
+            <span>Soccer Daily News</span>
         </div>
     </div>
 
@@ -24,7 +24,7 @@
      <!-- Desktop Navigation -->
         <nav class="hidden lg:flex items-center space-x-6">
             <!-- DAFTAR KATEGORI LENGKAP (Urutan bisa diubah sesuai selera) -->
-            {{ $allowed := slice "US Politics" "Business" "Technology" "World" "Science" "Health" "Sports" "Entertainment" }}
+            {{ $allowed := slice "Premier" "Champions" "La Liga" "World" }}
             
             {{ range $allowed }}
                 {{ $name := . }}
