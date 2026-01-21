@@ -8,10 +8,11 @@ import random
 from datetime import datetime
 from slugify import slugify
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps # Library pengolah gambar
+from duckduckgo_search import DDGS # Library pencari gambar
 from groq import Groq, APIError, RateLimitError, BadRequestError
 
-# --- CONFIGURATION ---
+# --- KONFIGURASI API ---
 GROQ_KEYS_RAW = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_RAW.split(",") if k.strip()]
 
@@ -19,28 +20,27 @@ if not GROQ_API_KEYS:
     print("❌ FATAL ERROR: API Key Groq Kosong!")
     exit(1)
 
-# DAFTAR KATEGORI & RSS URL GOOGLE NEWS (US REGION)
+# --- KONFIGURASI SUMBER BERITA BOLA (RSS GOOGLE NEWS) ---
+# Menggunakan parameter 'when:1d' untuk berita 24 jam terakhir
 CATEGORY_URLS = {
-    "US Politics": "https://news.google.com/rss/headlines/section/topic/POLITICS?hl=en-US&gl=US&ceid=US:en",
-    "Business": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
-    "Technology": "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en",
-    "World": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
-    "Science": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en",
-    "Health": "https://news.google.com/rss/headlines/section/topic/HEALTH?hl=en-US&gl=US&ceid=US:en",
-    "Entertainment": "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en",
-    "Sports": "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en"
+    "Berita Transfer": "https://news.google.com/rss/search?q=football+transfer+news+Romano+here+we+go+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Liga Inggris": "https://news.google.com/rss/search?q=Premier+League+news+match+result+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Liga Champions": "https://news.google.com/rss/search?q=UEFA+Champions+League+news+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "La Liga": "https://news.google.com/rss/search?q=La+Liga+Real+Madrid+Barcelona+news+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
+    "Timnas Indonesia": "https://news.google.com/rss/search?q=Timnas+Indonesia+PSSI+STY+when:1d&hl=id-ID&gl=ID&ceid=ID:id",
+    "Prediksi Pertandingan": "https://news.google.com/rss/search?q=football+match+prediction+preview+lineup+when:1d&hl=en-GB&gl=GB&ceid=GB:en"
 }
 
 CONTENT_DIR = "content/articles"
 IMAGE_DIR = "static/images"
 DATA_DIR = "automation/data"
 MEMORY_FILE = f"{DATA_DIR}/link_memory.json"
-AUTHOR_NAME = "US News Desk"
+AUTHOR_NAME = "Soccer Daily Admin"
 
-# Target per kategori (Minimal 1)
+# Target artikel per kategori setiap kali bot jalan
 TARGET_PER_CATEGORY = 1 
 
-# --- MEMORY SYSTEM ---
+# --- SISTEM MEMORI (Agar tidak posting berita sama) ---
 def load_link_memory():
     if not os.path.exists(MEMORY_FILE): return {}
     try:
@@ -61,30 +61,89 @@ def get_internal_links_context():
         items = random.sample(items, 30)
     return json.dumps(dict(items))
 
-# --- IMAGE ENGINE (ROBUST) ---
-def download_and_optimize_image(prompt, filename):
-    safe_prompt = prompt.replace(" ", "%20")[:200]
-    # Menggunakan model Flux Realism
-    image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1280&height=720&nologo=true&model=flux-realism"
+# --- ENGINE GAMBAR (CARI REAL IMAGE + MODIFIKASI ANTI-COPYRIGHT) ---
+def download_and_optimize_image(query, filename):
+    """
+    Mencari gambar di DuckDuckGo, Download ke RAM (tidak save disk),
+    Crop Watermark, Mirror, Resize, lalu Save hasil akhirnya.
+    """
+    search_query = f"{query} soccer wallpaper 4k"
+    print(f"      🔍 Mencari gambar: {search_query}...")
     
-    for attempt in range(3):
-        try:
-            print(f"      🎨 Generating Image (Attempt {attempt+1})...")
-            response = requests.get(image_url, timeout=60)
-            if response.status_code == 200:
-                img = Image.open(BytesIO(response.content))
-                img = img.resize((1280, 720), Image.Resampling.LANCZOS)
-                output_path = f"{IMAGE_DIR}/{filename}"
-                img.convert("RGB").save(output_path, "JPEG", quality=80, optimize=True)
-                return True
-        except Exception as e:
-            print(f"      ⚠️ Image fail: {e}")
-            time.sleep(5)
+    # 1. Cari Gambar Resolusi Besar
+    image_url = None
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.images(
+                keywords=search_query, 
+                region="wt-wt", 
+                safesearch="off", 
+                size="Wallpaper", # Wajib wallpaper agar tidak pecah saat dicrop
+                type_image="photo", 
+                max_results=3
+            ))
+            if results:
+                image_url = results[0]['image']
+    except Exception as e:
+        print(f"      ⚠️ Search Error: {e}")
+        return False
+
+    if not image_url:
+        print("      ❌ Gambar tidak ditemukan.")
+        return False
+
+    # 2. Download ke Memori & Manipulasi
+    try:
+        print(f"      ⬇️ Processing: {image_url[:40]}...")
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(image_url, headers=headers, timeout=15)
+        
+        if response.status_code == 200:
+            # Buka gambar di RAM (BytesIO) -> File asli TIDAK disimpan di komputer
+            img = Image.open(BytesIO(response.content))
+            img = img.convert("RGB") 
+            
+            # --- TAHAP 1: CROP WATERMARK (SMART CROP) ---
+            width, height = img.size
+            
+            # Potong 15% (Kiri, Atas, Kanan)
+            # Potong 20% (Bawah) -> Biasanya ticker berita/watermark ada di bawah
+            left = width * 0.15
+            top = height * 0.15
+            right = width * 0.85
+            bottom = height * 0.80
+            
+            img = img.crop((left, top, right, bottom))
+            
+            # --- TAHAP 2: RESIZE & MIRROR ---
+            # Resize balik ke HD (1280x720) pakai Lanczos biar tajam
+            img = img.resize((1280, 720), Image.Resampling.LANCZOS)
+            
+            # Mirroring (Balik Horizontal) -> Kunci lolos copyright
+            img = ImageOps.mirror(img)
+            
+            # --- TAHAP 3: PERBAIKAN KUALITAS ---
+            # Karena dicrop & di-zoom, kita pertajam (Sharpen)
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(1.5) # Tajamkan 50%
+            
+            # Ubah warna dikit biar histogram beda
+            enhancer_col = ImageEnhance.Color(img)
+            img = enhancer_col.enhance(1.1)
+
+            # --- TAHAP 4: SIMPAN HASIL MODIFIKASI ---
+            output_path = f"{IMAGE_DIR}/{filename}"
+            # Saat save 'JPEG', metadata EXIF asli otomatis terbuang
+            img.save(output_path, "JPEG", quality=90, optimize=True)
+            
+            return True
+            
+    except Exception as e:
+        print(f"      ⚠️ Gagal memproses gambar: {e}")
     
-    print("      ❌ Image failed after 3 attempts.")
     return False
 
-# --- AI ENGINE ---
+# --- ENGINE AI (PENULIS BERITA BOLA) ---
 def parse_ai_response(text):
     try:
         parts = text.split("|||BODY_START|||")
@@ -104,47 +163,39 @@ def get_groq_article_seo(title, summary, link, internal_links_map, target_catego
     MODEL_NAME = "llama-3.3-70b-versatile"
     
     system_prompt = f"""
-    You are a Senior Journalist for 'US Daily'.
-    TARGET CATEGORY: {target_category}
+    Anda adalah Analis Sepak Bola Senior & Pundit untuk 'Soccer Daily'.
+    KATEGORI: {target_category}
     
-    TASK: Write a highly authoritative news article (1000+ words).
+    TUGAS: Tulis artikel berita/analisis sepak bola (800-1000 kata) dalam BAHASA INDONESIA.
     
-    OUTPUT FORMAT (STRICT):
-    {{"title": "...", "description": "...", "category": "{target_category}", "main_keyword": "...", "image_prompt": "..."}}
+    OUTPUT FORMAT (JSON WAJIB):
+    {{"title": "Judul Clickbait Berkelas (Max 70 chars)", "description": "Ringkasan SEO (Max 150 chars)", "category": "{target_category}", "main_keyword": "Nama Pemain/Tim Utama"}}
     |||BODY_START|||
-    [Markdown Article Content]
+    [Isi Artikel Format Markdown]
 
-    METADATA RULES:
-    - category: MUST BE EXACTLY '{target_category}'
-    - description: SEO optimized, under 160 chars.
-    - image_prompt: Photorealistic, cinematic, news style, 16:9 aspect ratio.
-
-    ARTICLE STRUCTURE:
-    1. **Key Takeaways** (Bulleted list)
-    2. **Introduction** (5W1H)
-    3. **Background & Context** (Deep dive)
-    4. **Analysis** (Why it matters for US citizens)
-    5. **Quotes & Reactions** (Simulated expert quotes)
-    6. **Outlook** (What's next)
-    
-    STYLE:
-    - Use H2 (##) and H3 (###).
-    - Bold important entities.
-    - Use internal links: {internal_links_map} -> Syntax: [Keyword](/articles/slug).
-    - Objective, professional, CBS/NYT style.
+    PANDUAN PENULISAN:
+    1. **Gaya Bahasa**: Gunakan istilah bola (Brace, Blunder, Tiki-taka, High Pressing, Parkir Bus). Nada bicara seru tapi profesional.
+    2. **Struktur**:
+       - Intro (5W1H) yang menarik.
+       - Analisis Taktik/Situasi.
+       - Statistik (jika ada).
+       - Kutipan/Reaksi Fans.
+       - Kesimpulan/Prediksi.
+    3. **SEO**: Masukkan internal link dari: {internal_links_map} -> Syntax: [Keyword](/articles/slug).
+    4. Jangan menyalin mentah-mentah, buat narasi unik.
     """
 
     user_prompt = f"""
-    News: {title}
-    Context: {summary}
-    Link: {link}
+    Sumber Berita: {title}
+    Ringkasan: {summary}
+    Link Asli: {link}
     
-    Write the article now.
+    Buat artikel sekarang.
     """
 
     for index, api_key in enumerate(GROQ_API_KEYS):
         try:
-            print(f"      🤖 AI Writing ({target_category})...")
+            print(f"      🤖 AI Menulis ({target_category})...")
             client = Groq(api_key=api_key)
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
@@ -152,8 +203,8 @@ def get_groq_article_seo(title, summary, link, internal_links_map, target_catego
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.6,
-                max_tokens=6500,
+                temperature=0.7,
+                max_tokens=6000,
             )
             return completion.choices[0].message.content
 
@@ -177,17 +228,20 @@ def main():
     # LOOPING SETIAP KATEGORI
     for category_name, rss_url in CATEGORY_URLS.items():
         print(f"\n📡 Fetching Category: {category_name}...")
-        feed = feedparser.parse(rss_url)
+        try:
+            feed = feedparser.parse(rss_url)
+        except Exception as e:
+            print(f"   ⚠️ Error fetching RSS: {e}")
+            continue
         
         if not feed.entries:
-            print(f"   ⚠️ No entries for {category_name}. Skipping.")
+            print(f"   ⚠️ Tidak ada berita baru untuk {category_name}.")
             continue
 
         cat_success_count = 0
         
-        # LOOPING BERITA DI DALAM KATEGORI TERSEBUT
+        # LOOPING BERITA
         for entry in feed.entries:
-            # Jika sudah dapat 1 artikel untuk kategori ini, pindah ke kategori berikutnya
             if cat_success_count >= TARGET_PER_CATEGORY:
                 break
 
@@ -196,14 +250,12 @@ def main():
             filename = f"{slug}.md"
 
             if os.path.exists(f"{CONTENT_DIR}/{filename}"):
-                # print(f"   ⏭️  Skipping (Exists): {clean_title[:20]}...")
                 continue
 
             print(f"   🔥 Processing: {clean_title[:50]}...")
             
-            # 1. Generate AI
+            # 1. Generate AI Text
             context = get_internal_links_context()
-            # Kita kirim nama kategori spesifik ke AI agar akurat
             raw_response = get_groq_article_seo(clean_title, entry.summary, entry.link, context, category_name)
             
             if not raw_response:
@@ -215,20 +267,23 @@ def main():
                 print("      ❌ Parse Failed.")
                 continue
 
-            # 2. Image
+            # 2. Image Processing (Cari -> Download ke RAM -> Modif -> Save)
             img_name = f"{slug}.jpg"
-            has_img = download_and_optimize_image(data['image_prompt'], img_name)
-            final_img = f"/images/{img_name}" if has_img else "/images/default-news.jpg"
+            # Cari gambar berdasarkan keyword utama + 'action match'
+            search_query = f"{data['main_keyword']} soccer match action"
+            has_img = download_and_optimize_image(search_query, img_name)
+            
+            final_img = f"/images/{img_name}" if has_img else "/images/default-football.jpg"
             
             # 3. Save Markdown
-            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S-05:00")
+            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+07:00") # WIB
             
             md = f"""---
 title: "{data['title'].replace('"', "'")}"
 date: {date}
 author: "{AUTHOR_NAME}"
 categories: ["{data['category']}"]
-tags: ["{data['main_keyword']}"]
+tags: ["{data['main_keyword']}", "Berita Bola", "Soccer"]
 featured_image: "{final_img}"
 description: "{data['description'].replace('"', "'")}"
 draft: false
@@ -237,7 +292,7 @@ draft: false
 {data['content']}
 
 ---
-*Sources: Analysis based on reports from AP, Reuters, and [Original Story]({entry.link}).*
+*Sumber: Analisis Soccer Daily berdasarkan laporan media internasional dan [Sumber Asli]({entry.link}).*
 """
             with open(f"{CONTENT_DIR}/{filename}", "w", encoding="utf-8") as f: f.write(md)
             
@@ -248,11 +303,10 @@ draft: false
             cat_success_count += 1
             total_generated += 1
             
-            # Jeda 15 detik agar API Groq & Pollinations aman
-            print("   zzz... Cooling down 15s...")
+            print("   zzz... Istirahat 15 detik...")
             time.sleep(15)
 
-    print(f"\n🎉 DONE! Total articles generated: {total_generated}")
+    print(f"\n🎉 SELESAI! Total artikel dibuat: {total_generated}")
 
 if __name__ == "__main__":
     main()
