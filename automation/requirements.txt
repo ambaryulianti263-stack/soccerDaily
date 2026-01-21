@@ -1,6 +1,6 @@
 requests
 feedparser
 python-slugify
-python-dotenv
 Pillow
 groq
+duckduckgo-search>=5.0.0
