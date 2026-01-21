@@ -1,0 +1,12 @@
+{{- /* Generate Search Index */ -}}
+[
+    {{- range $index, $page := where .Site.RegularPages "Section" "articles" -}}
+    {{- if $index -}},{{- end -}}
+    {
+        "title": {{ $page.Title | jsonify }},
+        "permalink": {{ $page.RelPermalink | jsonify }},
+        "summary": {{ $page.Summary | plainify | truncate 150 | jsonify }},
+        "image": {{ $page.Params.featured_image | default "/images/default-news.jpg" | jsonify }}
+    }
+    {{- end -}}
+]

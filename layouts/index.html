@@ -1,0 +1,85 @@
+{{ define "main" }}
+<div class="container mx-auto px-4 py-8">
+
+    <!-- 1. HERO SECTION (Split Image & Text) -->
+    {{ range first 1 (where .Site.RegularPages "Section" "articles") }}
+    <section class="mb-12 border-b border-gray-200 pb-12">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            
+            <!-- Left: Image (LCP PRIORITY) -->
+            <div class="lg:col-span-8">
+                <a href="{{ .Permalink }}" class="block relative group overflow-hidden rounded-sm">
+                    {{ if .Params.featured_image }}
+                    <!-- OPTIMIZATION: fetchpriority='high' memaksa browser download ini duluan -->
+                    <img src="{{ .Params.featured_image }}" alt="{{ .Title }}" 
+                         class="w-full aspect-video object-cover transition duration-700 group-hover:scale-105"
+                         loading="eager"
+                         fetchpriority="high"
+                         decoding="sync">
+                    {{ end }}
+                    <!-- Overlay Badge -->
+                    <span class="absolute top-0 left-0 bg-news-red text-white text-[10px] font-bold px-3 py-1 uppercase tracking-widest">
+                        Top Story
+                    </span>
+                </a>
+            </div>
+
+            <!-- Right: Text -->
+            <div class="lg:col-span-4 flex flex-col justify-center h-full">
+                <div class="mb-2">
+                    <span class="text-news-red font-bold text-xs uppercase tracking-wider">
+                        {{ index .Params.categories 0 | default "Breaking News" }}
+                    </span>
+                </div>
+                <h1 class="font-display font-medium text-3xl md:text-4xl leading-tight mb-4 text-news-dark hover:text-gray-600 transition">
+                    <a href="{{ .Permalink }}">{{ .Title }}</a>
+                </h1>
+                <p class="text-gray-600 mb-4 text-base leading-relaxed hidden md:block">
+                    {{ .Summary | truncate 180 }}
+                </p>
+                <div class="mt-auto pt-4 border-t border-gray-100 text-xs text-gray-400 font-medium">
+                    {{ .Date.Format "January 2, 2006" }} &bull; {{ .ReadingTime }} min read
+                </div>
+            </div>
+        </div>
+    </section>
+    {{ end }}
+
+    <!-- 2. LATEST NEWS GRID -->
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="font-display font-bold text-xl uppercase tracking-tight text-news-dark border-l-4 border-news-red pl-3">
+            Latest Headlines
+        </h2>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+        {{ range first 8 (after 1 (where .Site.RegularPages "Section" "articles")) }}
+        <article class="group flex flex-col h-full">
+            <a href="{{ .Permalink }}" class="block overflow-hidden rounded-sm mb-3">
+                {{ if .Params.featured_image }}
+                <!-- Gambar di bawah diload secara LAZY agar tidak memberatkan loading awal -->
+                <img src="{{ .Params.featured_image }}" alt="{{ .Title }}" 
+                     class="w-full h-40 object-cover transition duration-500 group-hover:scale-105 group-hover:opacity-90"
+                     loading="lazy"
+                     decoding="async">
+                {{ end }}
+            </a>
+            <div class="flex flex-col flex-grow">
+                <div class="mb-1">
+                    <span class="text-[10px] font-bold text-news-red uppercase tracking-wide">
+                        {{ index .Params.categories 0 }}
+                    </span>
+                </div>
+                <h3 class="font-display font-medium text-lg leading-snug mb-2 group-hover:underline decoration-1 underline-offset-2">
+                    <a href="{{ .Permalink }}">{{ .Title }}</a>
+                </h3>
+                <p class="text-gray-500 text-xs mt-auto">
+                    {{ .Date.Format "Jan 02" }} &bull; US Daily
+                </p>
+            </div>
+        </article>
+        {{ end }}
+    </div>
+
+</div>
+{{ end }}

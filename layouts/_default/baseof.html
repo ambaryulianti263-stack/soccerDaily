@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }} | {{ .Site.Title }}{{ end }}</title>
+    
+    <meta name="description" content="{{ if .IsHome }}{{ .Site.Params.description }}{{ else }}{{ .Summary | default .Site.Params.description }}{{ end }}">
+<!-- FAVICON CONFIGURATION (SVG Modern) -->
+    <!-- Menggunakan logo Target/Record dari Footer -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/favicon.svg">
+    <!-- PRECONNECT: Mempercepat koneksi ke Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- FONTS: Menggunakan display=swap agar teks muncul duluan sebelum font terload -->
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;700;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- CSS: Menggunakan file statis hasil build (Jauh lebih cepat dari CDN) -->
+  <script src="https://cdn.tailwindcss.com?plugins=typography,line-clamp"></script>
+</head>
+<body class="bg-white text-news-dark font-sans antialiased flex flex-col min-h-screen">
+
+    <!-- Header Partial -->
+    {{ partial "header.html" . }}
+
+    <!-- Main Content Injection -->
+    <main class="flex-grow">
+        {{ block "main" . }}{{ end }}
+    </main>
+
+    <!-- Footer Partial -->
+    {{ partial "footer.html" . }}
+
+</body>
+</html>

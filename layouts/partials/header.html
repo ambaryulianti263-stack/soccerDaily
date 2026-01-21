@@ -1,0 +1,52 @@
+<header class="bg-white border-b-4 border-news-dark sticky top-0 z-50">
+    <!-- Top Bar (Date & Search) -->
+    <div class="bg-news-dark text-white text-[10px] py-1 hidden md:block">
+        <div class="container mx-auto px-4 flex justify-between">
+            <span>{{ now.Format "Monday, January 2, 2006" }}</span>
+            <span>US Daily Autonomous News</span>
+        </div>
+    </div>
+
+    <!-- Main Header -->
+    <div class="container mx-auto px-4 h-16 flex items-center justify-between">
+        
+        <!-- LOGO (Style ala CBS: Simbol + Teks) -->
+        <a href="/" class="flex items-center group">
+            <div class="w-8 h-8 rounded-full border-[3px] border-news-dark flex items-center justify-center mr-2 group-hover:bg-news-dark group-hover:border-transparent transition">
+                <div class="w-3 h-3 bg-news-dark rounded-full group-hover:bg-white"></div>
+            </div>
+            <span class="font-display font-black text-2xl tracking-tighter text-news-dark">
+                US<span class="font-light">DAILY</span>
+            </span>
+        </a>
+
+        <!-- Desktop Navigation -->
+     <!-- Desktop Navigation -->
+        <nav class="hidden lg:flex items-center space-x-6">
+            <!-- DAFTAR KATEGORI LENGKAP (Urutan bisa diubah sesuai selera) -->
+            {{ $allowed := slice "US Politics" "Business" "Technology" "World" "Science" "Health" "Sports" "Entertainment" }}
+            
+            {{ range $allowed }}
+                {{ $name := . }}
+                <!-- Trik: Pakai 'urlize' agar spasi jadi strip (US Politics -> us-politics) -->
+                {{ $taxonomy := index $.Site.Taxonomies.categories ($name | urlize) }}
+                
+                <!-- Cek: Hanya munculkan jika ada artikelnya -->
+                {{ if $taxonomy }}
+                <a href="{{ "/categories/" | relLangURL }}{{ $name | urlize }}" 
+                   class="font-display font-bold text-sm text-gray-700 hover:text-news-red uppercase tracking-tight transition whitespace-nowrap">
+                    {{ . }}
+                </a>
+                {{ end }}
+            {{ end }}
+        </nav>
+
+        <!-- Right Side: Watch Live Button -->
+        <div class="flex items-center">
+            <button class="flex items-center gap-2 bg-transparent border border-gray-300 hover:border-news-red hover:text-news-red px-3 py-1.5 rounded-full transition group">
+                <div class="w-2 h-2 bg-news-red rounded-full animate-pulse"></div>
+                <span class="text-xs font-bold uppercase tracking-wide">Watch Live</span>
+            </button>
+        </div>
+    </div>
+</header>

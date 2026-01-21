@@ -1,0 +1,23 @@
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+  {{ range .Site.RegularPages }}
+  {{ if eq .Type "articles" }}
+  
+  {{ if gt .Date.Unix (now.AddDate 0 0 -2).Unix }}
+  <url>
+    <loc>{{ .Permalink }}</loc>
+    <news:news>
+      <news:publication>
+        <news:name>{{ .Site.Title }}</news:name>
+        <news:language>{{ .Site.Language.Lang }}</news:language>
+      </news:publication>
+      <news:publication_date>{{ .Date.Format "2006-01-02T15:04:05-07:00" }}</news:publication_date>
+      <news:title>{{ .Title }}</news:title>
+      <news:keywords>{{ range $i, $e := .Params.tags }}{{ if $i }}, {{ end }}{{ $e }}{{ end }}</news:keywords>
+    </news:news>
+  </url>
+  {{ end }}
+  
+  {{ end }}
+  {{ end }}
+</urlset>

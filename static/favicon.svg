@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 1. Background Hitam (Warna #101010 sesuai tema Footer) -->
+  <!-- Ini penting agar lingkaran putih terlihat jelas di tab browser -->
+  <rect width="32" height="32" rx="16" fill="#101010"/>
+  
+  <!-- 2. Lingkaran Luar (Border Putih) -->
+  <circle cx="16" cy="16" r="12" fill="none" stroke="white" stroke-width="2"/>
+  
+  <!-- 3. Titik Tengah (Dot Putih) -->
+  <circle cx="16" cy="16" r="5" fill="white"/>
+</svg>

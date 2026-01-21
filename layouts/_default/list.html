@@ -1,0 +1,37 @@
+{{ define "main" }}
+<div class="container mx-auto px-4 py-12">
+    
+    <!-- HEADER KATEGORI -->
+    <div class="mb-10 border-b border-gray-200 pb-4">
+        <h1 class="text-3xl font-black text-gray-900 uppercase tracking-tight">
+            {{ .Title }}
+        </h1>
+        <p class="text-gray-500 mt-2">Latest coverage on {{ .Title }}</p>
+    </div>
+
+    <!-- GRID ARTIKEL (Sama seperti Homepage tapi khusus kategori ini) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {{ range .Pages }}
+        <article class="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition border border-gray-100 flex flex-col h-full">
+            <a href="{{ .Permalink }}" class="block h-48 overflow-hidden">
+                {{ if .Params.featured_image }}
+                <img src="{{ .Params.featured_image }}" alt="{{ .Title }}" class="w-full h-full object-cover transition hover:scale-105">
+                {{ else }}
+                <div class="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400">No Image</div>
+                {{ end }}
+            </a>
+            <div class="p-6 flex flex-col flex-grow">
+                <div class="flex items-center text-xs text-gray-500 mb-3">
+                    <time>{{ .Date.Format "Jan 02, 2006" }}</time>
+                </div>
+                <h2 class="text-xl font-bold mb-3 font-serif leading-snug flex-grow">
+                    <a href="{{ .Permalink }}" class="hover:text-blue-700 text-gray-900">{{ .Title }}</a>
+                </h2>
+                <p class="text-gray-600 text-sm line-clamp-3 mb-4">{{ .Summary | truncate 150 }}</p>
+            </div>
+        </article>
+        {{ end }}
+    </div>
+
+</div>
+{{ end }}
