@@ -8,11 +8,11 @@ import random
 from datetime import datetime
 from slugify import slugify
 from io import BytesIO
-from PIL import Image, ImageEnhance, ImageOps # Library pengolah gambar
-from duckduckgo_search import DDGS # Library pencari gambar
+from PIL import Image, ImageEnhance, ImageOps
+from duckduckgo_search import DDGS 
 from groq import Groq, APIError, RateLimitError, BadRequestError
 
-# --- KONFIGURASI API ---
+# --- CONFIGURATION ---
 GROQ_KEYS_RAW = os.environ.get("GROQ_API_KEY", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_RAW.split(",") if k.strip()]
 
@@ -20,8 +20,7 @@ if not GROQ_API_KEYS:
     print("❌ FATAL ERROR: API Key Groq Kosong!")
     exit(1)
 
-# --- KONFIGURASI SUMBER BERITA BOLA (RSS GOOGLE NEWS) ---
-# Menggunakan parameter 'when:1d' untuk berita 24 jam terakhir
+# --- CATEGORY RSS FEED ---
 CATEGORY_URLS = {
     "Berita Transfer": "https://news.google.com/rss/search?q=football+transfer+news+Romano+here+we+go+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
     "Liga Inggris": "https://news.google.com/rss/search?q=Premier+League+news+match+result+when:1d&hl=en-GB&gl=GB&ceid=GB:en",
@@ -37,10 +36,9 @@ DATA_DIR = "automation/data"
 MEMORY_FILE = f"{DATA_DIR}/link_memory.json"
 AUTHOR_NAME = "Soccer Daily Admin"
 
-# Target artikel per kategori setiap kali bot jalan
 TARGET_PER_CATEGORY = 1 
 
-# --- SISTEM MEMORI (Agar tidak posting berita sama) ---
+# --- MEMORY SYSTEM ---
 def load_link_memory():
     if not os.path.exists(MEMORY_FILE): return {}
     try:
@@ -61,89 +59,99 @@ def get_internal_links_context():
         items = random.sample(items, 30)
     return json.dumps(dict(items))
 
-# --- ENGINE GAMBAR (CARI REAL IMAGE + MODIFIKASI ANTI-COPYRIGHT) ---
+# --- HYBRID IMAGE ENGINE (DDG + AI BACKUP) ---
+def generate_ai_image(prompt, filename):
+    """
+    Backup: Jika pencarian gagal, buat gambar photorealistic pakai AI.
+    """
+    print(f"      🎨 DDG Blocked. Switching to AI Generation: {prompt}...")
+    
+    # Prompt engineering agar hasil seperti foto asli (bukan kartun)
+    enhanced_prompt = f"Real photography, {prompt}, 8k sports photo, realistic lighting, stadium background, no text, blur background"
+    safe_prompt = enhanced_prompt.replace(" ", "%20")[:300]
+    
+    # Menggunakan model 'flux-realism' (Paling bagus untuk foto nyata)
+    image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1280&height=720&nologo=true&model=flux-realism"
+    
+    try:
+        response = requests.get(image_url, timeout=30)
+        if response.status_code == 200:
+            img = Image.open(BytesIO(response.content))
+            img = img.convert("RGB")
+            # Tetap lakukan optimasi & save
+            output_path = f"{IMAGE_DIR}/{filename}"
+            img.save(output_path, "JPEG", quality=90, optimize=True)
+            return True
+    except Exception as e:
+        print(f"      ❌ AI Gen Failed: {e}")
+    
+    return False
+
 def download_and_optimize_image(query, filename):
     """
-    Mencari gambar di DuckDuckGo, Download ke RAM (tidak save disk),
-    Crop Watermark, Mirror, Resize, lalu Save hasil akhirnya.
+    Mencoba cari gambar di DDG. Jika Error 403 (Blocked), lari ke AI.
     """
-    search_query = f"{query} soccer wallpaper 4k"
-    print(f"      🔍 Mencari gambar: {search_query}...")
+    search_query = f"{query} soccer match action wallpaper 4k"
+    print(f"      🔍 Searching Image: {search_query}...")
     
-    # 1. Cari Gambar Resolusi Besar
     image_url = None
+    
+    # 1. COBA CARI GAMBAR ASLI (DDG)
     try:
         with DDGS() as ddgs:
             results = list(ddgs.images(
                 keywords=search_query, 
                 region="wt-wt", 
                 safesearch="off", 
-                size="Wallpaper", # Wajib wallpaper agar tidak pecah saat dicrop
+                size="Wallpaper", 
                 type_image="photo", 
-                max_results=3
+                max_results=2
             ))
             if results:
                 image_url = results[0]['image']
     except Exception as e:
-        print(f"      ⚠️ Search Error: {e}")
-        return False
-
+        # Tangkap Error 403 (Ratelimit) di sini
+        print(f"      ⚠️ Search Engine Error/Blocked: {e}")
+    
+    # 2. JIKA DDG GAGAL/BLOCKED -> GUNAKAN AI FLUX REALISM
     if not image_url:
-        print("      ❌ Gambar tidak ditemukan.")
-        return False
+        print("      ⚠️ Real image not found/blocked. Using AI Backup...")
+        return generate_ai_image(query, filename)
 
-    # 2. Download ke Memori & Manipulasi
+    # 3. JIKA GAMBAR KETEMU -> DOWNLOAD & PROSES
     try:
-        print(f"      ⬇️ Processing: {image_url[:40]}...")
+        print(f"      ⬇️ Downloading Real Image: {image_url[:40]}...")
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(image_url, headers=headers, timeout=15)
+        response = requests.get(image_url, headers=headers, timeout=10)
         
         if response.status_code == 200:
-            # Buka gambar di RAM (BytesIO) -> File asli TIDAK disimpan di komputer
             img = Image.open(BytesIO(response.content))
-            img = img.convert("RGB") 
+            img = img.convert("RGB")
             
-            # --- TAHAP 1: CROP WATERMARK (SMART CROP) ---
+            # --- CROP WATERMARK ---
             width, height = img.size
+            img = img.crop((width*0.1, height*0.1, width*0.9, height*0.85)) # Crop simple
             
-            # Potong 15% (Kiri, Atas, Kanan)
-            # Potong 20% (Bawah) -> Biasanya ticker berita/watermark ada di bawah
-            left = width * 0.15
-            top = height * 0.15
-            right = width * 0.85
-            bottom = height * 0.80
-            
-            img = img.crop((left, top, right, bottom))
-            
-            # --- TAHAP 2: RESIZE & MIRROR ---
-            # Resize balik ke HD (1280x720) pakai Lanczos biar tajam
+            # --- RESIZE & MIRROR ---
             img = img.resize((1280, 720), Image.Resampling.LANCZOS)
+            img = ImageOps.mirror(img) # Flip Horizontal
             
-            # Mirroring (Balik Horizontal) -> Kunci lolos copyright
-            img = ImageOps.mirror(img)
-            
-            # --- TAHAP 3: PERBAIKAN KUALITAS ---
-            # Karena dicrop & di-zoom, kita pertajam (Sharpen)
+            # --- ENHANCE ---
             enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(1.5) # Tajamkan 50%
+            img = enhancer.enhance(1.4)
             
-            # Ubah warna dikit biar histogram beda
-            enhancer_col = ImageEnhance.Color(img)
-            img = enhancer_col.enhance(1.1)
-
-            # --- TAHAP 4: SIMPAN HASIL MODIFIKASI ---
             output_path = f"{IMAGE_DIR}/{filename}"
-            # Saat save 'JPEG', metadata EXIF asli otomatis terbuang
             img.save(output_path, "JPEG", quality=90, optimize=True)
-            
             return True
             
     except Exception as e:
-        print(f"      ⚠️ Gagal memproses gambar: {e}")
+        print(f"      ⚠️ Process Fail: {e}")
+        # Jika download gagal pun, lempar ke AI sebagai pertahanan terakhir
+        return generate_ai_image(query, filename)
     
     return False
 
-# --- ENGINE AI (PENULIS BERITA BOLA) ---
+# --- AI WRITER ENGINE ---
 def parse_ai_response(text):
     try:
         parts = text.split("|||BODY_START|||")
@@ -173,16 +181,10 @@ def get_groq_article_seo(title, summary, link, internal_links_map, target_catego
     |||BODY_START|||
     [Isi Artikel Format Markdown]
 
-    PANDUAN PENULISAN:
-    1. **Gaya Bahasa**: Gunakan istilah bola (Brace, Blunder, Tiki-taka, High Pressing, Parkir Bus). Nada bicara seru tapi profesional.
-    2. **Struktur**:
-       - Intro (5W1H) yang menarik.
-       - Analisis Taktik/Situasi.
-       - Statistik (jika ada).
-       - Kutipan/Reaksi Fans.
-       - Kesimpulan/Prediksi.
-    3. **SEO**: Masukkan internal link dari: {internal_links_map} -> Syntax: [Keyword](/articles/slug).
-    4. Jangan menyalin mentah-mentah, buat narasi unik.
+    STYLE:
+    - Gunakan istilah bola (Brace, Blunder, Tiki-taka, High Pressing).
+    - Intro (5W1H), Analisis Taktik, Statistik, Prediksi.
+    - Masukkan internal link: {internal_links_map}.
     """
 
     user_prompt = f"""
@@ -207,10 +209,6 @@ def get_groq_article_seo(title, summary, link, internal_links_map, target_catego
                 max_tokens=6000,
             )
             return completion.choices[0].message.content
-
-        except BadRequestError as e:
-            print(f"      ⚠️ GROQ 400 ERROR: {e.body}")
-            continue
         except Exception as e:
             print(f"      ⚠️ Error (Key #{index+1}): {e}")
             continue
@@ -225,7 +223,6 @@ def main():
 
     total_generated = 0
 
-    # LOOPING SETIAP KATEGORI
     for category_name, rss_url in CATEGORY_URLS.items():
         print(f"\n📡 Fetching Category: {category_name}...")
         try:
@@ -235,12 +232,11 @@ def main():
             continue
         
         if not feed.entries:
-            print(f"   ⚠️ Tidak ada berita baru untuk {category_name}.")
+            print(f"   ⚠️ Kosong/Skip.")
             continue
 
         cat_success_count = 0
         
-        # LOOPING BERITA
         for entry in feed.entries:
             if cat_success_count >= TARGET_PER_CATEGORY:
                 break
@@ -254,36 +250,31 @@ def main():
 
             print(f"   🔥 Processing: {clean_title[:50]}...")
             
-            # 1. Generate AI Text
+            # 1. AI Text
             context = get_internal_links_context()
             raw_response = get_groq_article_seo(clean_title, entry.summary, entry.link, context, category_name)
             
-            if not raw_response:
-                print("      ❌ AI Failed.")
-                continue
+            if not raw_response: continue
 
             data = parse_ai_response(raw_response)
-            if not data:
-                print("      ❌ Parse Failed.")
-                continue
+            if not data: continue
 
-            # 2. Image Processing (Cari -> Download ke RAM -> Modif -> Save)
+            # 2. Image (Hybrid: Try Real -> Fail -> Use AI)
             img_name = f"{slug}.jpg"
-            # Cari gambar berdasarkan keyword utama + 'action match'
             search_query = f"{data['main_keyword']} soccer match action"
             has_img = download_and_optimize_image(search_query, img_name)
             
             final_img = f"/images/{img_name}" if has_img else "/images/default-football.jpg"
             
-            # 3. Save Markdown
-            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+07:00") # WIB
+            # 3. Save
+            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+07:00")
             
             md = f"""---
 title: "{data['title'].replace('"', "'")}"
 date: {date}
 author: "{AUTHOR_NAME}"
 categories: ["{data['category']}"]
-tags: ["{data['main_keyword']}", "Berita Bola", "Soccer"]
+tags: ["{data['main_keyword']}", "Berita Bola"]
 featured_image: "{final_img}"
 description: "{data['description'].replace('"', "'")}"
 draft: false
@@ -292,7 +283,7 @@ draft: false
 {data['content']}
 
 ---
-*Sumber: Analisis Soccer Daily berdasarkan laporan media internasional dan [Sumber Asli]({entry.link}).*
+*Sumber: Analisis Soccer Daily dari laporan media internasional dan [Sumber Asli]({entry.link}).*
 """
             with open(f"{CONTENT_DIR}/{filename}", "w", encoding="utf-8") as f: f.write(md)
             
@@ -303,10 +294,10 @@ draft: false
             cat_success_count += 1
             total_generated += 1
             
-            print("   zzz... Istirahat 15 detik...")
-            time.sleep(15)
+            print("   zzz... Istirahat 10 detik...")
+            time.sleep(10)
 
-    print(f"\n🎉 SELESAI! Total artikel dibuat: {total_generated}")
+    print(f"\n🎉 SELESAI! Total: {total_generated}")
 
 if __name__ == "__main__":
     main()
