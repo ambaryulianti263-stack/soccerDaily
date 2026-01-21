@@ -1,0 +1,54 @@
+name: Auto Post Soccer News
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Jalan setiap 6 jam
+  workflow_dispatch:      # Bisa dijalankan manual (klik tombol Run)
+
+permissions:
+  contents: write
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install -r automation/requirements.txt
+
+      - name: Run Content Engine
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python automation/main.py
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "SoccerBot"
+          git config --global user.email "bot@soccerdaily.com"
+          
+          git add .
+          
+          # Cek jika ada perubahan
+          if git diff --staged --quiet; then
+            echo "No changes to commit. Bot sleeping."
+          else
+            echo "Changes detected. Committing..."
+            # [skip ci] ditambahkan agar GitHub Actions tidak looping, 
+            # TAPI Netlify biasanya tetap akan mendeteksi ini dan melakukan deploy.
+            git commit -m "⚽ New Soccer Update [skip ci]"
+            
+            # Pull dulu barangkali ada update manual dari Anda agar tidak crash
+            git pull --rebase origin main
+            
+            # Push ke main
+            git push origin main
+          fi
