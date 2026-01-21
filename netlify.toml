@@ -1,0 +1,7 @@
+[build]
+  # Netlify akan menginstall npm, lalu build Hugo dengan URL dinamis
+  command = "npm install && hugo --gc --minify --buildFuture -b $URL"
+  publish = "public"
+
+[build.environment]
+  HUGO_VERSION = "0.120.0"
